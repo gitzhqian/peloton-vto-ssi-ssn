@@ -37,6 +37,9 @@ void RunWarmupWorkload();
 
 void RunWorkload1();
 void RunWorkload2();
+void RunWorkload3();
+void RunWorkload4();
+void RunWorkload5();
 
 bool RunMixed(const size_t thread_id, ZipfDistribution &zipf, FastRandom &rng);
 bool  RunScanMixed(const size_t thread_id);

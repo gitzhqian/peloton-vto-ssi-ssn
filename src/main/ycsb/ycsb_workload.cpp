@@ -12,8 +12,11 @@
 
 #include "benchmark/ycsb/ycsb_workload.h"
 
+#include <include/executor/hybrid_scan_executor.h>
+#include <include/planner/hybrid_scan_plan.h>
 #include <papi.h>
 #include <sys/utsname.h>
+
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
@@ -560,6 +563,10 @@ void RunWorkload() {
 
 }
 
+/**
+ * paper tests
+ * workload1: scan->insert
+ */
 void RunWorkload1() {
   std::cout << "Workload1 started." << std::endl;
   stopwatch_t sw;
@@ -571,6 +578,8 @@ void RunWorkload1() {
   //1. scan from YCSB, projectivity , selectivity , loop 1000
   // Column ids to be added to logical tile after scan. projectivity
   int end_column_idx = state.column_count * state.projectivity;
+  std::cout << "YCSB column_count." << state.column_count << std::endl;
+  std::cout << "YCSB projectivity." << state.projectivity << std::endl;
   std::vector<oid_t> column_ids;
   column_ids.clear();
   for (int j = 0; j < end_column_idx; ++j) {
@@ -580,6 +589,7 @@ void RunWorkload1() {
   int tuple_total_count = user_table->GetTupleCount();
   oid_t pred_constant = tuple_total_count * state.selectivity;
   std::cout << "YCSB total tuple count." << tuple_total_count << std::endl;
+  std::cout << "YCSB selectivity." << state.selectivity << std::endl;
 
   for (int i = 0; i < 1000; ++i) {
     auto &txn_manager_scan = concurrency::TransactionManagerFactory::GetInstance();
@@ -647,7 +657,7 @@ void RunWorkload1() {
   auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
 
   int interval = 1000*1000;
-  int insert_total = 20000*1000;
+  int insert_total = 10*1000*1000;
   int insert_count = insert_total/interval;
   for (int j = 0; j < insert_count; ++j) {
     int from_tuple_id = user_table->GetTupleCount();
@@ -681,25 +691,43 @@ void RunWorkload1() {
   int ycsb_tuple_count = user_table->GetTupleCount();
   std::cout << "YCSB table total tuple counts: " << ycsb_tuple_count << std::endl;
 }
-void RunWorkload2() {
-  std::cout << "Workload2 started." << std::endl;
+/**
+ * paper tests
+ * workload2: scan
+ * laod 1million
+ * run 1000 scan
+ */
+void RunWorkload2Index() {
+  std::cout << "RunWorkload2Index started." << std::endl;
+  assert(state.index_scan);
 
-  //1. insert into YCSB, 10million tuples
+  //1. insert into YCSB, 1million tuples
   PinToCore(0);
-  stopwatch_t sw;
-  sw.start();
+
+  ZipfDistribution zipf((state.scale_factor * 1000) - 1,
+                        state.zipf_theta);
 
   //2. scan from YCSB, projectivity , selectivity , loop 1000
   // Column ids to be added to logical tile after scan. projectivity
   int end_column_idx = state.column_count * state.projectivity;
+  std::cout << "YCSB column_count." << state.column_count << std::endl;
+  std::cout << "YCSB projectivity." << state.projectivity << std::endl;
   std::vector<oid_t> column_ids;
+  std::vector<oid_t> full_column_ids;
   column_ids.clear();
   for (int j = 0; j < end_column_idx; ++j) {
     column_ids.push_back(j);
   }
+  for (oid_t col_itr = 0; col_itr < state.column_count; col_itr++) {
+    full_column_ids.push_back(col_itr);
+  }
+
+  stopwatch_t sw;
+  sw.start();
 
   int tuple_total_count = user_table->GetTupleCount();
-  oid_t pred_constant = tuple_total_count * state.selectivity;
+//  oid_t pred_constant = tuple_total_count * state.selectivity;
+  std::cout << "YCSB selectivity." << state.selectivity << std::endl;
   std::cout << "YCSB total tuple count." << tuple_total_count << std::endl;
 
   for (int i = 0; i < 1000; ++i) {
@@ -707,67 +735,743 @@ void RunWorkload2() {
     concurrency::Transaction *txn_scan =  txn_manager_scan.BeginTransaction(0);
     txn_scan->SetDeclaredReadOnly();
     std::unique_ptr<executor::ExecutorContext> context_scan(new executor::ExecutorContext(txn_scan));
-    // Set of tuple_ids that will satisfy the predicate in our test cases.
-    // left 0, right 1
-    oid_t pred_tuple_idx = 0;
-    oid_t pred_column_idx = 0;
 
-    //left, column 0
-    auto tup_val_exp =  new expression::TupleValueExpression(type::Type::INTEGER,
-                                                             pred_tuple_idx, pred_column_idx);
-    auto const_val_exp = new expression::ConstantValueExpression(
-        type::ValueFactory::GetIntegerValue(pred_constant));
+    //if index scan
+    //index
+    std::vector<expression::AbstractExpression *> runtime_keys;
+    std::vector<oid_t> key_column_ids;
+    std::vector<ExpressionType> expr_types;
+    key_column_ids.push_back(0);
+    expr_types.push_back(ExpressionType::COMPARE_LESSTHAN);
+    std::vector<type::Value> values;
 
-    auto predicate = new expression::ComparisonExpression(
-        ExpressionType::COMPARE_LESSTHAN, tup_val_exp, const_val_exp);
+    auto lookup_key = 0;
+    lookup_key = zipf.GetNextNumber();
+    values.push_back(type::ValueFactory::GetIntegerValue(lookup_key).Copy());
 
+    auto ycsb_pkey_index =
+        user_table->GetIndexWithOid(user_table_pkey_index_oid);
+
+    planner::IndexScanPlan::IndexScanDesc index_scan_desc(
+        ycsb_pkey_index, key_column_ids, expr_types, values, runtime_keys);
     // Create plan node.
-    planner::SeqScanPlan node(user_table, predicate, column_ids);
-    // Create executor node.
-    executor::SeqScanExecutor executor(&node, context_scan.get());
-    int expected_num_tiles = user_table->GetTileGroupCount();
+    auto predicate = nullptr;
+    planner::IndexScanPlan index_scan_node(user_table, predicate, column_ids,
+                                           index_scan_desc);
+    // Run the executor
+    executor::IndexScanExecutor index_scan_executor(&index_scan_node,
+                                                    context_scan.get());
 
     std::vector<std::unique_ptr<executor::LogicalTile>> result_tiles;
-    executor.Init();
-    while(executor.Execute()) {
-      std::unique_ptr<executor::LogicalTile> result_tile(executor.GetOutput());
-      if(result_tile == nullptr) {
-        break;
-      }
-      result_tiles.emplace_back(result_tile.release());
-    }
-    int result_tile_count = result_tiles.size();
+    std::vector<std::vector<type::Value >> logical_tile_values;
 
-    // Check correctness of result tiles.
-//    for (int i = 0; i < result_tile_count; ++i) {
-//      assert(column_ids.size() == result_tiles[i]->GetColumnCount());
+    //if layout row or column
+//    if (state.layout_mode != LAYOUT_TYPE_HYBRID){
+      index_scan_executor.Init();
+      while(index_scan_executor.Execute()) {
+        std::unique_ptr<executor::LogicalTile> result_tile(index_scan_executor.GetOutput());
+        if(result_tile == nullptr) {
+          break;
+        }
+        result_tiles.emplace_back(result_tile.release());
+      }
+      size_t sum = 0;
+      for (auto &result_tile : result_tiles) {
+        if (result_tile != nullptr){
+            auto column_count = result_tile->GetColumnCount();
+            for (oid_t tuple_id : *result_tile) {
+              expression::ContainerTuple<executor::LogicalTile> cur_tuple(result_tile.get(),
+                                                                          tuple_id);
+              std::vector<type::Value > tuple_values;
+              for (oid_t column_itr = 0; column_itr < column_count; column_itr++){
+                auto value = cur_tuple.GetValue(column_itr);
+                tuple_values.push_back(value);
+              }
+              // Move the tuple list
+              logical_tile_values.push_back(std::move(tuple_values));
+            }
+
+          sum += result_tile->GetTupleCount();
+        }
+      }
+      LOG_INFO("result tiles have %d tuples", (int)sum);
+      int result_tile_count = result_tiles.size();
+
+//    }else {
+//      //if layout row+column
+//      /////////////////////////////////////////////////////////
+//      // MATERIALIZE
+//      /////////////////////////////////////////////////////////
 //
-//      // Verify values.
-//      for (oid_t new_tuple_id : *(result_tiles[i])) {
-//        // We divide by 10 because we know how PopulatedValue() computes.
-//        // Bad style. Being a bit lazy here...
+//      // Create and set up materialization executor
+//      std::vector<catalog::Column> output_columns;
+//      std::unordered_map<oid_t, oid_t> old_to_new_cols;
+//      oid_t col_itr = 0;
+//      for (auto column_id : column_ids) {
+//        auto column = catalog::Column(type::Type::INTEGER,
+//                                      type::Type::GetTypeSize(type::Type::INTEGER),
+//                                      std::to_string(column_id), true);
+//        output_columns.push_back(column);
 //
-//        type::Value value1 = (result_tiles[i]->GetValue(new_tuple_id, 0));
-//        type::Value value2 = type::ValueFactory::GetIntegerValue(pred_constant);
+//        old_to_new_cols[col_itr] = col_itr;
 //
-//        assert(value1.CompareLessThan(value2) == type::CMP_TRUE);
+//        col_itr++;
+//      }
+//
+//      std::shared_ptr<const catalog::Schema> output_schema(
+//          new catalog::Schema(output_columns));
+//      bool physify_flag = true;  // is going to create a physical tile
+//      planner::MaterializationPlan mat_node(old_to_new_cols, output_schema,
+//                                            physify_flag);
+//
+//      executor::MaterializationExecutor mat_executor(&mat_node, nullptr);
+//
+//      mat_executor.AddChild(&index_scan_executor);
+//      /////////////////////////////////////////////////////////
+//      // EXECUTE
+//      /////////////////////////////////////////////////////////
+//      bool status = false;
+//      std::vector<executor::AbstractExecutor *> executors;
+//      executors.push_back(&mat_executor);
+//
+//      // Run all the executors
+//      for (auto executor : executors) {
+//        status = executor->Init();
+//        if (status == false) {
+//          throw Exception("Init failed");
+//        }
+//
+//        while (executor->Execute() == true) {
+//          std::unique_ptr<executor::LogicalTile> result_tile(executor->GetOutput());
+//          result_tiles.emplace_back(result_tile.release());
+//        }
+//
+//        size_t sum = 0;
+//        for (auto &result_tile : result_tiles) {
+//          if (result_tile != nullptr) {
+//              auto column_count = result_tile->GetColumnCount();
+//              for (oid_t tuple_id : *result_tile) {
+//                expression::ContainerTuple<executor::LogicalTile> cur_tuple(result_tile.get(),
+//                                                                            tuple_id);
+//                std::vector<type::Value > tuple_values;
+//                for (oid_t column_itr = 0; column_itr < column_count; column_itr++){
+//                  auto value = cur_tuple.GetValue(column_itr);
+//                  tuple_values.push_back(value);
+//                }
+//                // Move the tuple list
+//                logical_tile_values.push_back(std::move(tuple_values));
+//              }
+//
+//            sum += result_tile->GetTupleCount();
+//          }
+//        }
+//
+//        LOG_INFO("result tiles have %d tuples", (int)sum);
+//
+//        // Execute stuff
+//        executor->Execute();
 //      }
 //    }
 
     txn_manager_scan.CommitTransaction(txn_scan);
     result_tiles.clear();
+    logical_tile_values.clear();
   }
 
   auto elapsed = sw.elapsed<std::chrono::seconds>();
-  std::cout << "Workload2 finished in " << elapsed << " seconds" << std::endl;
+  std::cout << "RunWorkload2Index finished in " << elapsed << " seconds" << std::endl;
 
   int ycsb_tuple_count = user_table->GetTupleCount();
   std::cout << "YCSB table total tuple counts: " << ycsb_tuple_count << std::endl;
 }
+/**
+ * paper tests
+ * workload2: scan
+ * laod 1million
+ * run 1000 scan
+ */
+void RunWorkload2() {
+  if (state.index_scan){
+    RunWorkload2Index();
+  }else{
+    std::cout << "Workload2 started." << std::endl;
+
+    //1. insert into YCSB, 1million tuples
+    PinToCore(0);
+
+    ZipfDistribution zipf((state.scale_factor * 1000) - 1,
+                          state.zipf_theta);
+
+    //2. scan from YCSB, projectivity , selectivity , loop 1000
+    // Column ids to be added to logical tile after scan. projectivity
+    int end_column_idx = state.column_count * state.projectivity;
+    std::cout << "YCSB column_count." << state.column_count << std::endl;
+    std::cout << "YCSB projectivity." << state.projectivity << std::endl;
+    std::vector<oid_t> column_ids;
+    column_ids.clear();
+    for (int j = 0; j < end_column_idx; ++j) {
+      column_ids.push_back(j);
+    }
+
+    stopwatch_t sw;
+    sw.start();
+
+    int tuple_total_count = user_table->GetTupleCount();
+    //oid_t pred_constant = tuple_total_count * state.selectivity;
+    std::cout << "YCSB selectivity." << state.selectivity << std::endl;
+    std::cout << "YCSB total tuple count." << tuple_total_count << std::endl;
+
+    for (int i = 0; i < 1000; ++i) {
+      auto &txn_manager_scan = concurrency::TransactionManagerFactory::GetInstance();
+      concurrency::Transaction *txn_scan =  txn_manager_scan.BeginTransaction(0);
+      txn_scan->SetDeclaredReadOnly();
+      std::unique_ptr<executor::ExecutorContext> context_scan(new executor::ExecutorContext(txn_scan));
+
+      auto lookup_key = 0;
+      lookup_key = zipf.GetNextNumber();
+
+      //if sequentical scan
+      // Set of tuple_ids that will satisfy the predicate in our test cases.
+      // left 0, right 1
+      oid_t pred_tuple_idx = 0;
+      oid_t pred_column_idx = 0;
+      //left, column 0
+      auto tup_val_exp =  new expression::TupleValueExpression(type::Type::INTEGER,
+                                                               pred_tuple_idx, pred_column_idx);
+      auto const_val_exp = new expression::ConstantValueExpression(
+          type::ValueFactory::GetIntegerValue(lookup_key));
+      auto predicate = new expression::ComparisonExpression(
+          ExpressionType::COMPARE_LESSTHAN, tup_val_exp, const_val_exp);
+      // Create plan node.
+      planner::SeqScanPlan node(user_table, predicate, column_ids);
+      // Create executor node.
+      executor::SeqScanExecutor seq_scan_executor(&node, context_scan.get());
+
+      std::vector<std::unique_ptr<executor::LogicalTile>> result_tiles;
+      std::vector<std::vector<type::Value >> logical_tile_values;
+
+      //if layout row or column
+//      if (state.layout_mode != LAYOUT_TYPE_HYBRID){
+        seq_scan_executor.Init();
+        while(seq_scan_executor.Execute()) {
+          std::unique_ptr<executor::LogicalTile> result_tile(seq_scan_executor.GetOutput());
+          if(result_tile == nullptr) {
+            break;
+          }
+          result_tiles.emplace_back(result_tile.release());
+        }
+        size_t sum = 0;
+        for (auto &result_tile : result_tiles) {
+          if (result_tile != nullptr) {
+              auto column_count = result_tile->GetColumnCount();
+              for (oid_t tuple_id : *result_tile) {
+                expression::ContainerTuple<executor::LogicalTile> cur_tuple(result_tile.get(),
+                                                                            tuple_id);
+                std::vector<type::Value > tuple_values;
+                for (oid_t column_itr = 0; column_itr < column_count; column_itr++){
+                  auto value = cur_tuple.GetValue(column_itr);
+                  tuple_values.push_back(value);
+                }
+                // Move the tuple list
+                logical_tile_values.push_back(std::move(tuple_values));
+              }
+
+            sum += result_tile->GetTupleCount();
+          }
+        }
+        LOG_INFO("result tiles have %d tuples", (int)sum);
+        int result_tile_count = result_tiles.size();
+
+//      }else {
+//        //if layout row+column
+//        /////////////////////////////////////////////////////////
+//        // MATERIALIZE
+//        /////////////////////////////////////////////////////////
+//
+//        // Create and set up materialization executor
+//        std::vector<catalog::Column> output_columns;
+//        std::unordered_map<oid_t, oid_t> old_to_new_cols;
+//        oid_t col_itr = 0;
+//        for (auto column_id : column_ids) {
+//          auto column = catalog::Column(type::Type::INTEGER,
+//                                        type::Type::GetTypeSize(type::Type::INTEGER),
+//                                        std::to_string(column_id), true);
+//          output_columns.push_back(column);
+//
+//          old_to_new_cols[col_itr] = col_itr;
+//
+//          col_itr++;
+//        }
+//
+//        std::shared_ptr<const catalog::Schema> output_schema(
+//            new catalog::Schema(output_columns));
+//        bool physify_flag = true;  // is going to create a physical tile
+//        planner::MaterializationPlan mat_node(old_to_new_cols, output_schema,
+//                                              physify_flag);
+//
+//        executor::MaterializationExecutor mat_executor(&mat_node, nullptr);
+//
+//        mat_executor.AddChild(&seq_scan_executor);
+//        /////////////////////////////////////////////////////////
+//        // EXECUTE
+//        /////////////////////////////////////////////////////////
+//        bool status = false;
+//        std::vector<executor::AbstractExecutor *> executors;
+//        executors.push_back(&mat_executor);
+//
+//        // Run all the executors
+//        for (auto executor : executors) {
+//          status = executor->Init();
+//
+//          if (status == false) {
+//            throw Exception("Init failed");
+//          }
+//
+//          while (executor->Execute() == true) {
+//            std::unique_ptr<executor::LogicalTile> result_tile(executor->GetOutput());
+//            result_tiles.emplace_back(result_tile.release());
+//          }
+//
+//          size_t sum = 0;
+//          for (auto &result_tile : result_tiles) {
+//            if (result_tile != nullptr) {
+//              auto column_count = result_tile->GetColumnCount();
+//              for (oid_t tuple_id : *result_tile) {
+//                expression::ContainerTuple<executor::LogicalTile> cur_tuple(result_tile.get(),
+//                                                                            tuple_id);
+//                std::vector<type::Value > tuple_values;
+//                for (oid_t column_itr = 0; column_itr < column_count; column_itr++){
+//                  auto value = cur_tuple.GetValue(column_itr);
+//                  tuple_values.push_back(value);
+//                }
+//                // Move the tuple list
+//                logical_tile_values.push_back(std::move(tuple_values));
+//              }
+//
+//              sum += result_tile->GetTupleCount();
+//            }
+//          }
+//
+//          LOG_INFO("result tiles have %d tuples", (int)sum);
+//
+//          // Execute stuff
+//          executor->Execute();
+//        }
+//      }
+
+      txn_manager_scan.CommitTransaction(txn_scan);
+      result_tiles.clear();
+      logical_tile_values.clear();
+    }
+
+    auto elapsed = sw.elapsed<std::chrono::seconds>();
+    std::cout << "Workload2 finished in " << elapsed << " seconds" << std::endl;
+
+    int ycsb_tuple_count = user_table->GetTupleCount();
+    std::cout << "YCSB table total tuple counts: " << ycsb_tuple_count << std::endl;
+  }
+}
+
+/**
+ * paper tests
+ * workload3: read
+ * load 1 million
+ * run 10*1000*1000 reads
+ */
+void RunWorkload3() {
+    std::cout << "Workload3 started." << std::endl;
+    assert(state.index_scan);
+
+    ZipfDistribution zipf((state.scale_factor * 1000) - 1,
+                          state.zipf_theta);
+
+    PinToCore(0);
+    stopwatch_t sw;
+    sw.start();
+
+    // Column ids to be added to logical tile.
+    int end_column_idx = state.column_count * state.projectivity;
+    std::cout << "YCSB column_count." << state.column_count << std::endl;
+    std::cout << "YCSB projectivity." << state.projectivity << std::endl;
+    std::vector<oid_t> column_ids;
+    column_ids.clear();
+    for (int j = 0; j < end_column_idx; ++j) {
+      column_ids.push_back(j);
+    }
+
+    auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
+//    // read all the attributes in a tuple.
+//    for (oid_t col_itr = 0; col_itr < column_count; col_itr++) {
+//      column_ids.push_back(col_itr);
+//    }
+
+    for (int i = 0; i < 10*1000*1000; ++i) {
+        concurrency::Transaction *read_txn =txn_manager.BeginTransaction(0);
+        if (state.read_only) {
+          read_txn->SetDeclaredReadOnly();
+        }
+
+        std::unique_ptr<executor::ExecutorContext> context( new executor::ExecutorContext(read_txn));
+
+        std::vector<oid_t> key_column_ids;
+        std::vector<ExpressionType> expr_types;
+        key_column_ids.push_back(0);
+        expr_types.push_back(ExpressionType::COMPARE_EQUAL);
+        std::vector<expression::AbstractExpression *> runtime_keys;
+        /////////////////////////////////////////////////////////
+        // PERFORM READ
+        /////////////////////////////////////////////////////////
+        // set up parameter values
+        std::vector<type::Value> values;
+        auto lookup_key = 0;
+        lookup_key = zipf.GetNextNumber();
+        values.push_back(type::ValueFactory::GetIntegerValue(lookup_key).Copy());
+
+        // index
+        auto ycsb_pkey_index =
+            user_table->GetIndexWithOid(user_table_pkey_index_oid);
+
+        planner::IndexScanPlan::IndexScanDesc index_scan_desc(
+            ycsb_pkey_index, key_column_ids, expr_types, values, runtime_keys);
+
+        // Create plan node.
+        auto predicate = nullptr;
+
+        planner::IndexScanPlan index_scan_node(user_table, predicate, column_ids,
+                                               index_scan_desc);
+
+        // Run the executor
+        executor::IndexScanExecutor index_scan_executor(&index_scan_node,
+                                                        context.get());
+        //if layout row or column
+//        if (state.layout_mode != LAYOUT_TYPE_HYBRID){
+
+          ExecuteRead(&index_scan_executor);
+
+//        }else{
+//          std::vector<std::unique_ptr<executor::LogicalTile>> result_tiles;
+//          /////////////////////////////////////////////////////////
+//          // MATERIALIZE
+//          /////////////////////////////////////////////////////////
+//          // Create and set up materialization executor
+//          std::vector<catalog::Column> output_columns;
+//          std::unordered_map<oid_t, oid_t> old_to_new_cols;
+//          oid_t col_itr = 0;
+//          for (auto column_id : column_ids) {
+//            auto column = catalog::Column(type::Type::INTEGER,
+//                                          type::Type::GetTypeSize(type::Type::INTEGER),
+//                                          std::to_string(column_id), true);
+//            output_columns.push_back(column);
+//
+//            old_to_new_cols[col_itr] = col_itr;
+//
+//            col_itr++;
+//          }
+//
+//          std::shared_ptr<const catalog::Schema> output_schema(
+//              new catalog::Schema(output_columns));
+//          bool physify_flag = true;  // is going to create a physical tile
+//          planner::MaterializationPlan mat_node(old_to_new_cols, output_schema,
+//                                                physify_flag);
+//
+//          executor::MaterializationExecutor mat_executor(&mat_node, nullptr);
+//
+//          mat_executor.AddChild(&index_scan_executor);
+//          /////////////////////////////////////////////////////////
+//          // EXECUTE
+//          /////////////////////////////////////////////////////////
+//          bool status = false;
+//          std::vector<executor::AbstractExecutor *> executors;
+//          executors.push_back(&mat_executor);
+//
+//          // Run all the executors
+//          for (auto executor : executors) {
+//            status = executor->Init();
+//            if (status == false) {
+//              throw Exception("Init failed");
+//            }
+//
+//            while (executor->Execute() == true) {
+//              std::unique_ptr<executor::LogicalTile> result_tile(executor->GetOutput());
+//              result_tiles.emplace_back(result_tile.release());
+//            }
+//
+//            size_t sum = 0;
+//            for (auto &result_tile : result_tiles) {
+//              if (result_tile != nullptr) {
+//                sum += result_tile->GetTupleCount();
+//                auto column_count = result_tile->GetColumnCount();
+//                for (oid_t tuple_id : *result_tile) {
+//                  expression::ContainerTuple<executor::LogicalTile> cur_tuple(result_tile.get(),
+//                                                                              tuple_id);
+//                  std::vector<type::Value > tuple_values;
+//                  for (oid_t column_itr = 0; column_itr < column_count; column_itr++){
+//                    auto value = cur_tuple.GetValue(column_itr);
+//                    tuple_values.push_back(value);
+//                  }
+//                }
+//              }
+//            }
+//
+//            //LOG_INFO("result tiles have %d tuples", (int)sum);
+//
+//            // Execute stuff
+//            executor->Execute();
+//          }
+//        }
+
+        txn_manager.CommitTransaction(read_txn);
+      }
+
+    auto elapsed = sw.elapsed<std::chrono::seconds>();
+    std::cout << "Workload3 finished in " << elapsed << " seconds" << std::endl;
+
+    int ycsb_tuple_count = user_table->GetTupleCount();
+    std::cout << "YCSB table total tuple counts: " << ycsb_tuple_count << std::endl;
+}
+/**
+ * paper tests
+ * workload4: update
+ * load 1 million
+ * run 10*1000*1000 updates
+ */
+void RunWorkload4() {
+  std::cout << "Workload4 started." << std::endl;
+  assert(state.index_scan);
+
+  ZipfDistribution zipf((state.scale_factor * 1000) - 1,state.zipf_theta);
+
+  // Column ids to be added to logical tile.
+  std::cout << "YCSB column_count." << state.column_count << std::endl;
+  std::cout << "YCSB projectivity." << state.projectivity << std::endl;
+  oid_t column_count = state.column_count + 1;
+  int end_column_idx = state.column_count * state.projectivity;
+  std::vector<oid_t> column_ids;
+  // read all the attributes in a tuple.
+  for (oid_t col_itr = 0; col_itr < column_count; col_itr++) {
+    column_ids.push_back(col_itr);
+  }
+
+  PinToCore(0);
+  stopwatch_t sw;
+  sw.start();
+
+  auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
+
+  for (int i = 0; i < 10*1000*1000; ++i) {
+    concurrency::Transaction *read_txn =txn_manager.BeginTransaction(0);
+
+    std::unique_ptr<executor::ExecutorContext> context( new executor::ExecutorContext(read_txn));
+
+    std::vector<oid_t> key_column_ids;
+    std::vector<ExpressionType> expr_types;
+    key_column_ids.push_back(0);
+    expr_types.push_back(ExpressionType::COMPARE_EQUAL);
+    std::vector<expression::AbstractExpression *> runtime_keys;
+    /////////////////////////////////////////////////////////
+    // PERFORM UPDATE
+    /////////////////////////////////////////////////////////
+    // Create and set up index scan executor
+    // set up parameter values
+    std::vector<type::Value> values;
+    auto lookup_key = 0;
+    lookup_key = zipf.GetNextNumber();
+    values.push_back(type::ValueFactory::GetIntegerValue(lookup_key).Copy());
+
+    //index
+    auto ycsb_pkey_index = user_table->GetIndexWithOid(user_table_pkey_index_oid);
+
+    planner::IndexScanPlan::IndexScanDesc index_scan_desc(
+        ycsb_pkey_index, key_column_ids, expr_types, values, runtime_keys);
+
+    // Create plan node.
+    auto predicate = nullptr;
+    planner::IndexScanPlan index_scan_node(user_table, predicate, column_ids,
+                                           index_scan_desc);
+    // Run the executor
+    executor::IndexScanExecutor index_scan_executor(&index_scan_node,
+                                                    context.get());
+
+    TargetList target_list;
+    DirectMapList direct_map_list;
+    // update multiple attributes
+    for (oid_t col_itr = 0; col_itr < column_count; col_itr++) {
+      if (col_itr>0 && col_itr < end_column_idx) {
+        int update_raw_value = 1;
+        type::Value update_val =
+            type::ValueFactory::GetIntegerValue(update_raw_value).Copy();
+        target_list.emplace_back(
+            col_itr,
+            expression::ExpressionUtil::ConstantValueFactory(update_val));
+      } else {
+        direct_map_list.emplace_back(col_itr,
+                                     std::pair<oid_t, oid_t>(0, col_itr));
+      }
+    }
+
+    std::unique_ptr<const planner::ProjectInfo> project_info(
+        new planner::ProjectInfo(std::move(target_list),
+                                 std::move(direct_map_list)));
+    planner::UpdatePlan update_node(user_table, std::move(project_info));
+
+    executor::UpdateExecutor update_executor(&update_node, context.get());
+
+    update_executor.AddChild(&index_scan_executor);
+
+    ExecuteUpdate(&update_executor);
+
+
+    txn_manager.CommitTransaction(read_txn);
+  }
+
+  auto elapsed = sw.elapsed<std::chrono::seconds>();
+  std::cout << "Workload4 finished in " << elapsed << " seconds" << std::endl;
+
+  int ycsb_tuple_count = user_table->GetTupleCount();
+  std::cout << "YCSB table total tuple counts: " << ycsb_tuple_count << std::endl;
+}
+/**
+ * paper tests
+ * workload5: 50% read & 50% update
+ * load 1 million
+ * run 10*1000*1000 reads/updates
+ */
+void RunWorkload5() {
+  std::cout << "Workload5 started." << std::endl;
+  assert(state.index_scan);
+  PinToCore(0);
+
+  ZipfDistribution zipf((state.scale_factor * 1000) - 1,state.zipf_theta);
+  FastRandom rng(rand());
+
+  // Column ids to be added to logical tile.
+  std::cout << "YCSB column_count." << state.column_count << std::endl;
+  std::cout << "YCSB projectivity." << state.projectivity << std::endl;
+  oid_t column_count = state.column_count + 1;
+  int end_column_idx = state.column_count * state.projectivity;
+  std::vector<oid_t> column_ids;
+  // read all the attributes in a tuple.
+  for (oid_t col_itr = 0; col_itr < column_count; col_itr++) {
+    column_ids.push_back(col_itr);
+  }
+
+  stopwatch_t sw;
+  sw.start();
+
+  auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
+  concurrency::Transaction *read_txn =txn_manager.BeginTransaction(0);
+  std::unique_ptr<executor::ExecutorContext> read_context( new executor::ExecutorContext(read_txn));
+
+  std::vector<oid_t> key_column_ids;
+  std::vector<ExpressionType> expr_types;
+  key_column_ids.push_back(0);
+  expr_types.push_back(ExpressionType::COMPARE_EQUAL);
+  std::vector<expression::AbstractExpression *> runtime_keys;
+
+  for (int i = 0; i < 10*1000; ++i) {
+    concurrency::Transaction *update_txn = txn_manager.BeginTransaction(0);
+    std::unique_ptr<executor::ExecutorContext> update_context(
+        new executor::ExecutorContext(update_txn));
+
+    //index lookup
+    // set up parameter values
+    std::vector<type::Value> values;
+    auto lookup_key = 0;
+    lookup_key = zipf.GetNextNumber();
+    values.push_back(type::ValueFactory::GetIntegerValue(lookup_key).Copy());
+    auto ycsb_pkey_index =
+        user_table->GetIndexWithOid(user_table_pkey_index_oid);
+
+    planner::IndexScanPlan::IndexScanDesc index_scan_desc(
+        ycsb_pkey_index, key_column_ids, expr_types, values, runtime_keys);
+
+    // Create plan node.
+    auto predicate = nullptr;
+    planner::IndexScanPlan index_scan_node(user_table, predicate, column_ids,
+                                           index_scan_desc);
+    // Run the executor
+    executor::IndexScanExecutor index_scan_executor(&index_scan_node,
+                                                    update_context.get());
+
+    /////////////////////////////////////////////////////////
+    // PERFORM UPDATE
+    /////////////////////////////////////////////////////////
+    // Create and set up index scan executor
+    TargetList target_list;
+    DirectMapList direct_map_list;
+    // update multiple attributes
+    for (oid_t col_itr = 0; col_itr < column_count; col_itr++) {
+      if (col_itr > 0 && col_itr < end_column_idx) {
+        int update_raw_value = 1;
+        type::Value update_val =
+            type::ValueFactory::GetIntegerValue(update_raw_value).Copy();
+        target_list.emplace_back(
+            col_itr,
+            expression::ExpressionUtil::ConstantValueFactory(update_val));
+      } else {
+        direct_map_list.emplace_back(col_itr,
+                                     std::pair<oid_t, oid_t>(0, col_itr));
+      }
+    }
+
+    std::unique_ptr<const planner::ProjectInfo> project_info(
+        new planner::ProjectInfo(std::move(target_list),
+                                 std::move(direct_map_list)));
+    planner::UpdatePlan update_node(user_table, std::move(project_info));
+
+    executor::UpdateExecutor update_executor(&update_node,
+                                             update_context.get());
+
+    update_executor.AddChild(&index_scan_executor);
+
+    ExecuteUpdate(&update_executor);
+
+    txn_manager.CommitTransaction(update_txn);
+  }
+
+  for (int i = 0; i < 1000*10; ++i) {
+      /////////////////////////////////////////////////////////
+      // PERFORM READ
+      /////////////////////////////////////////////////////////
+      // set up parameter values
+      std::vector<type::Value> values;
+      auto lookup_key = 0;
+      lookup_key = zipf.GetNextNumber();
+      values.push_back(type::ValueFactory::GetIntegerValue(lookup_key).Copy());
+      // index
+      auto ycsb_pkey_index =
+          user_table->GetIndexWithOid(user_table_pkey_index_oid);
+
+      planner::IndexScanPlan::IndexScanDesc index_scan_desc(
+          ycsb_pkey_index, key_column_ids, expr_types, values, runtime_keys);
+
+      // Create plan node.
+      auto predicate = nullptr;
+
+      planner::IndexScanPlan index_scan_node(user_table, predicate, column_ids,
+                                             index_scan_desc);
+
+      // Run the executor
+      executor::IndexScanExecutor index_scan_executor(&index_scan_node,
+                                                      read_context.get());
+      //if layout row or column
+      ExecuteRead(&index_scan_executor);
+
+      txn_manager.CommitTransaction(read_txn);
+  }
+
+
+  auto elapsed = sw.elapsed<std::chrono::seconds>();
+  std::cout << "Workload5 finished in " << elapsed << " seconds" << std::endl;
+
+  int ycsb_tuple_count = user_table->GetTupleCount();
+  std::cout << "YCSB table total tuple counts: " << ycsb_tuple_count << std::endl;
+}
+
+
 /////////////////////////////////////////////////////////
 // HARNESS
 /////////////////////////////////////////////////////////
-
 std::vector<std::vector<type::Value >> ExecuteRead(executor::AbstractExecutor* executor) {
   executor->Init();
 
@@ -801,7 +1505,7 @@ std::vector<std::vector<type::Value >> ExecuteRead(executor::AbstractExecutor* e
     sum = sum + result_tile->GetTupleCount();
 
   }
-  LOG_DEBUG("result row count = %zu", sum);
+//  LOG_DEBUG("result row count = %zu", sum);
 
   return std::move(logical_tile_values);
 }

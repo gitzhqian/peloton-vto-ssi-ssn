@@ -450,7 +450,7 @@ bool RunMixedScanInsert(const size_t thread_id, ZipfDistribution &zipf, FastRand
 }
 bool RunMixed(const size_t thread_id, ZipfDistribution &zipf, FastRandom &rng) {
   if (state.scan_rate>0){
-        RunMixedScanInsert(thread_id,zipf,rng);
+        return RunMixedScanInsert(thread_id,zipf,rng);
   }else{
     auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
     concurrency::Transaction *txn =  txn_manager.BeginTransaction(thread_id);

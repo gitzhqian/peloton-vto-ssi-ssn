@@ -53,9 +53,35 @@ column_map_type AbstractTable::GetTileGroupLayout(
   }
   // hybrid layout map
   else if (layout_type == LAYOUT_TYPE_HYBRID) {
-    for (oid_t col_itr = 0; col_itr < col_count; col_itr++) {
-      column_map[col_itr] = std::make_pair(0, col_itr);
+    if (this->GetName()=="USERTABLE"){
+      double state_projectivity = 0.01;
+      oid_t tile_count = col_count * state_projectivity;
+      //map<org_column_id, <tile_id, new_column_id>>
+      //layout type hybrid + column
+//      for (oid_t col_itr = 0; col_itr < tile_count; col_itr++) {
+//        //column
+//        column_map[col_itr] = std::make_pair(col_itr, 0);
+//      }
+//      for (oid_t col_itr = tile_count; col_itr < col_count; col_itr++) {
+//        //row
+//        column_map[col_itr] = std::make_pair(tile_count, col_itr-tile_count);
+//      }
+      //layout type hybrid + row
+      for (oid_t col_itr = 0; col_itr < tile_count; col_itr++) {
+        //row
+        column_map[col_itr] = std::make_pair(0, col_itr);
+      }
+      for (oid_t col_itr = tile_count; col_itr < col_count; col_itr++) {
+        //column
+        column_map[col_itr] = std::make_pair(col_itr-tile_count+1, 0);
+      }
+    }else{
+      for (oid_t col_itr = 0; col_itr < col_count; col_itr++) {
+        column_map[col_itr] = std::make_pair(0, col_itr);
+      }
     }
+
+
   } else {
     throw Exception("Unknown tilegroup layout option : " +
                     std::to_string(layout_type));

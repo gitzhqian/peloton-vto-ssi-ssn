@@ -15,7 +15,7 @@
 #include <mutex>
 
 #include <pthread.h>
-
+#include <functional>
 #include "networking/tcp_connection.h"
 #include "networking/connection_manager.h"
 #include "networking/peloton_service.h"

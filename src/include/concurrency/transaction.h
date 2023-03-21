@@ -91,6 +91,7 @@ class Transaction : public Printable {
   inline cid_t GetEndCommitId() const { return end_cid_; }
 
   inline void SetEndCommitId(cid_t eid) { end_cid_ = eid; }
+  inline void SetBeginCommitId(cid_t eid) { begin_cid_ = eid; }
   inline void SetTransactionId(txn_id_t txn_id) { txn_id_ = txn_id; }
 
   void RecordRead(const ItemPointer &);

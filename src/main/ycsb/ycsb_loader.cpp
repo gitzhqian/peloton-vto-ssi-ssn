@@ -113,27 +113,30 @@ void CreateYCSBDatabase() {
   ycsb_database->AddTable(user_table);
 
   // Primary index on user key
-  std::vector<oid_t> key_attrs;
+  if (state.index_scan){
+    std::vector<oid_t> key_attrs;
 
-  auto tuple_schema = user_table->GetSchema();
-  catalog::Schema *key_schema;
-  index::IndexMetadata *index_metadata;
-  bool unique;
+    auto tuple_schema = user_table->GetSchema();
+    catalog::Schema *key_schema;
+    index::IndexMetadata *index_metadata;
+    bool unique;
 
-  key_attrs = {0};
-  key_schema = catalog::Schema::CopySchema(tuple_schema, key_attrs);
-  key_schema->SetIndexedColumns(key_attrs);
+    key_attrs = {0};
+    key_schema = catalog::Schema::CopySchema(tuple_schema, key_attrs);
+    key_schema->SetIndexedColumns(key_attrs);
 
-  unique = true;
+    unique = true;
 
-  index_metadata = new index::IndexMetadata(
-    "primary_index", user_table_pkey_index_oid, user_table_oid,
-    ycsb_database_oid, state.index, IndexConstraintType::PRIMARY_KEY,
-    tuple_schema, key_schema, key_attrs, unique);
+    index_metadata = new index::IndexMetadata(
+        "primary_index", user_table_pkey_index_oid, user_table_oid,
+        ycsb_database_oid, state.index, IndexConstraintType::PRIMARY_KEY,
+        tuple_schema, key_schema, key_attrs, unique);
 
-  std::shared_ptr<index::Index> pkey_index(
-      index::IndexFactory::GetIndex(index_metadata));
-  user_table->AddIndex(pkey_index);
+    std::shared_ptr<index::Index> pkey_index(
+        index::IndexFactory::GetIndex(index_metadata));
+    user_table->AddIndex(pkey_index);
+  }
+
 }
 
 void LoadYCSBRows(const int begin_rowid, const int end_rowid) {
@@ -157,7 +160,7 @@ void LoadYCSBRows(const int begin_rowid, const int end_rowid) {
   auto &txn_manager = concurrency::TransactionManagerFactory::GetInstance();
   const bool allocate = true;
 
-  int interval = 1000*1000;
+  int interval = 1000;
   int insert_total = end_rowid;
   int insert_count = insert_total/interval;
   for (int j = 0; j < insert_count; ++j) {

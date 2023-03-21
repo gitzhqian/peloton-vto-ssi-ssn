@@ -156,7 +156,7 @@ void ParseArguments(int argc, char *argv[], configuration &state) {
   // Default Values
   state.index = IndexType::BWTREE;
   state.epoch = EpochType::DECENTRALIZED_EPOCH;
-  state.scale_factor = 10000;//1000 1million 10000 10million
+  state.scale_factor = 10;//1000 1million 10000 10million
   state.duration = 20;
   state.profile_duration = 1;
   state.backend_count = 6;
@@ -173,10 +173,10 @@ void ParseArguments(int argc, char *argv[], configuration &state) {
   state.gc_mode = false;
   state.gc_backend_count = 1;
   state.loader_count = 1;
-  state.index_scan = false;
-  state.layout_mode = LAYOUT_TYPE_ROW;// LAYOUT_TYPE_COLUMN LAYOUT_TYPE_ROW
+  state.index_scan = true;
+  state.layout_mode = LAYOUT_TYPE_ROW;// LAYOUT_TYPE_COLUMN LAYOUT_TYPE_ROW LAYOUT_TYPE_HYBRID
   state.selectivity = 1;
-  state.projectivity = 0.01;
+  state.projectivity = 1;
   state.scan_rate = 0;
   state.tuples_per_tilegroup = DEFAULT_TUPLES_PER_TILEGROUP;
 

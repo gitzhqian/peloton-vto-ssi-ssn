@@ -62,7 +62,7 @@ void RunBenchmark() {
   gc::GCManager &gc_manager = gc::GCManagerFactory::GetInstance();
 
   // start GC.
-  gc_manager.StartGC(gc_threads);
+//  gc_manager.StartGC(gc_threads);
 
   // Create the database
   CreateYCSBDatabase();
@@ -70,24 +70,29 @@ void RunBenchmark() {
   // Load the databases
   LoadYCSBDatabase();
 
+  //------------------------------YCSB workload tests
   // Run the workload
-  RunWorkload();
+  //RunWorkload();
   //RunWarmupWorkload();
 
-  //RunWorkload1();
+  //---------------------------------paper row-column tests
   //RunWorkload2();
+  //RunWorkload1();
+  //RunWorkload3();
+  //RunWorkload4();
+  RunWorkload5();
 
   // stop GC.
-  gc_manager.StopGC();
+//  gc_manager.StopGC();
 
   // stop epoch.
   epoch_manager.StopEpoch();
 
   // join all gc threads
-  for (auto &gc_thread : gc_threads) {
-    PL_ASSERT(gc_thread != nullptr);
-    gc_thread->join();
-  }
+//  for (auto &gc_thread : gc_threads) {
+//    PL_ASSERT(gc_thread != nullptr);
+//    gc_thread->join();
+//  }
 
   // join epoch thread
   PL_ASSERT(epoch_thread != nullptr);

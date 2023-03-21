@@ -1,0 +1,83 @@
+/home/zhangqian/Downloads/CLion-2020.2.4/clion-2020.2.4/bin/cmake/linux/bin/cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_MAKE_PROGRAM=/usr/bin/make -DCMAKE_C_COMPILER=/usr/bin/gcc-5 -DCMAKE_CXX_COMPILER=/usr/bin/g++-5 -G "CodeBlocks - Unix Makefiles" /home/zhangqian/peloton-vto-ssi-ssn
+-- The CXX compiler identification is GNU 5.5.0
+-- The C compiler identification is GNU 5.5.0
+-- Check for working CXX compiler: /usr/bin/g++-5
+-- Check for working CXX compiler: /usr/bin/g++-5 - works
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Check for working C compiler: /usr/bin/gcc-5
+-- Check for working C compiler: /usr/bin/gcc-5 - works
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Detecting C compile features
+-- Detecting C compile features - done
+CMake Warning (dev) at cmake/Misc.cmake:32 (set):
+  implicitly converting 'BOOLEAN' to 'STRING' type.
+Call Stack (most recent call first):
+  CMakeLists.txt:32 (include)
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+INFO Using built-in specs.
+COLLECT_GCC=/usr/bin/g++-5
+COLLECT_LTO_WRAPPER=/usr/lib/gcc/x86_64-linux-gnu/5/lto-wrapper
+Target: x86_64-linux-gnu
+Configured with: ../src/configure -v --with-pkgversion='Ubuntu 5.5.0-12ubuntu1' --with-bugurl=file:///usr/share/doc/gcc-5/README.Bugs --enable-languages=c,ada,c++,go,d,fortran,objc,obj-c++ --prefix=/usr --program-suffix=-5 --enable-shared --enable-linker-build-id --libexecdir=/usr/lib --without-included-gettext --enable-threads=posix --libdir=/usr/lib --enable-nls --with-sysroot=/ --enable-clocale=gnu --enable-libstdcxx-debug --enable-libstdcxx-time=yes --with-default-libstdcxx-abi=new --enable-gnu-unique-object --disable-vtable-verify --enable-libmpx --enable-plugin --enable-default-pie --with-system-zlib --enable-objc-gc --enable-multiarch --disable-werror --with-arch-32=i686 --with-abi=m64 --with-multilib-list=m32,m64,mx32 --enable-multilib --with-tune=generic --enable-checking=release --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu
+Thread model: posix
+gcc version 5.5.0 20171010 (Ubuntu 5.5.0-12ubuntu1) 
+
+Selected compiler gcc 5.5.0
+-- Looking for pthread.h
+-- Looking for pthread.h - found
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Failed
+-- Looking for pthread_create in pthreads
+-- Looking for pthread_create in pthreads - not found
+-- Looking for pthread_create in pthread
+-- Looking for pthread_create in pthread - found
+-- Found Threads: TRUE  
+-- Found Boost: /usr/include (found suitable version "1.65.1", minimum required is "1.46") found components: system filesystem thread chrono date_time atomic 
+-- Found GFlags: /usr/include  
+-- Found gflags  (include: /usr/include, library: /usr/lib/x86_64-linux-gnu/libgflags.so)
+-- Found Protobuf: /usr/local/lib/libprotobuf.so;-lpthread (found version "3.4.0") 
+-- Found PROTOBUF Compiler: /usr/local/bin/protoc
+-- Found libevent (include: /usr/include, library: /usr/lib/x86_64-linux-gnu/libevent.so)
+-- Could NOT find Doxygen (missing: DOXYGEN_EXECUTABLE) 
+-- Found JeMalloc: /usr/lib/x86_64-linux-gnu/libjemalloc.so  
+-- Found jemalloc (include: , library: /usr/lib/x86_64-linux-gnu/libjemalloc.so)
+-- Found PythonInterp: /usr/bin/python (found version "2.7.17") 
+-- Performing Test COMPILER_SUPPORTS_CXX1Y
+-- Performing Test COMPILER_SUPPORTS_CXX1Y - Success
+-- Found PAPI: /usr/lib/x86_64-linux-gnu/libpapi.a  
+-- Found Git: /usr/bin/git (found version "2.17.1") 
+-- 
+-- ******************* Peloton Configuration Summary *******************
+-- General:
+--   Version           :   0.0.5
+--   Git               :   998a96f-dirty
+--   System            :   Linux
+--   Compiler          :   /usr/bin/g++-5 (gcc 5.5.0)
+--   Release CXX flags :   -O3 -DNDEBUG -std=c++1y -D__PELOTONFILE__='"$(subst /home/zhangqian/peloton-vto-ssi-ssn/,,$(abspath $<))"' -fdiagnostics-color=auto -fPIC   -mcx16 -Wno-invalid-offsetof
+--   Debug CXX flags   :   -g -O0 -ggdb -std=c++1y -D__PELOTONFILE__='"$(subst /home/zhangqian/peloton-vto-ssi-ssn/,,$(abspath $<))"' -fdiagnostics-color=auto -fPIC   -mcx16 -Wno-invalid-offsetof
+--   Build type        :   Debug
+-- 
+--   BUILD_docs        :   ON
+-- 
+-- Dependencies:
+--   Linker flags      :   
+--   Boost             :   Yes (ver. 1.65)
+--   glog              :   Yes
+--   gflags            :   Yes
+--   protobuf          :   Yes (ver. 3.4.0)
+-- 
+-- Documentaion:
+--   Doxygen           :   No
+--   config_file       :   
+-- 
+-- Install:
+--   Install path      :   /home/zhangqian/peloton-vto-ssi-ssn/cmake-build-debug/install
+-- 
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/zhangqian/peloton-vto-ssi-ssn/cmake-build-debug
